@@ -1,6 +1,37 @@
 # respon
 
 
+
+•user_id(購入者id)
+•accessed_at (アクション日時)
+•event_action (アクション内容　remove_from_cart,purchase,add_to_wishlist,add_to_cart,view,favorite,checkout)
+•product_id (製品id)
+•creator_name (クリエイター名)
+•creator_id (クリエイターid)
+•title (製品タイトル)
+•description (製品説明)
+•item_id (アイテムid)
+•item_name (アイテム名)
+•item_category_id (アイテムカテゴリーid)
+•item_category_name (アイテムカテゴリー名)
+•exemplary_item_color_id(下記に対応するid)
+•exemplary_item_color_name(メインで販売している色名)
+•material_1~material_12 (使用マテリアルidが1〜12個。複数使用していない場合はnan)
+•material_url (マテリアル画像のリンク)
+•sale_1~sale_18 (セール参加フラグ　計18回)
+•profit(suzuriの利益)
+•price(商品の価格)
+
+
+クリエイターテーブル
+•creator_id(クリエイターid)
+•name(クリエイター名)
+•display_name(表示クリエイター名)
+•created_at(アカウント作成日)
+•official(suzuri公認かそうでないか)
+•bio(紹介文)
+
+
 Total Transactions: 504168
 Total Purchases: 33227
 
