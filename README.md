@@ -238,7 +238,6 @@ Sample of Cleaned Data (Top 3 rows):
 [3 rows x 5 columns]
 
 
-
 Loading CSV files...
  Loaded Products: 164997 rows
  Loaded Events:   504168 rows
@@ -247,15 +246,15 @@ Loading CSV files...
 
 === Phase 1: Preprocessing & Merging ===
 Merging Dataframes...
-Total Raw Records: 591954
+Total Raw Records: 504168
 
 === Phase 2: Noise Detection & Filtering ===
 Detecting Direct Buys...
 Noise Report:
  - Self Purchases: 0
- - Dominant Buyers: 259584
- - Direct Buys: 46931
-Records after cleaning: 319337 (Removed: 272617)
+ - Dominant Buyers: 213760
+ - Direct Buys: 38982
+Records after cleaning: 279612 (Removed: 224556)
 
 === Phase 3: Feature Engineering ===
 Processing Sale Features...
@@ -263,20 +262,25 @@ Features Created.
 
 === Phase 4: Dataset Construction (Negative Sampling) ===
 Using Features: ['material_complexity', 'creator_gini_index', 'creator_tenure_days', 'days_to_sale_end', 'is_sale_target', 'user_buy_rate', 'price']
-Positive samples: 6068
+Positive samples: 5290
+Generating Negative Samples (Ratio 1:5)...
+Total Training Samples: 31740
 
-[Error] 予期せぬエラーが発生しました: DataFrame index must be unique for orient='index'.
-Traceback (most recent call last):
-  File "/home/intern2026-wntr-003/SUZURI/final_2.py", line 342, in <module>
-    pipeline.run()
-    ~~~~~~~~~~~~^^
-  File "/home/intern2026-wntr-003/SUZURI/final_2.py", line 313, in run
-    self.create_dataset()
-    ~~~~~~~~~~~~~~~~~~~^^
-  File "/home/intern2026-wntr-003/SUZURI/final_2.py", line 207, in create_dataset
-    prod_info = self.product_df.set_index('product_id').to_dict(orient='index')
-  File "/home/intern2026-wntr-003/SUZURI/.venv/lib/python3.14/site-packages/pandas/core/frame.py", line 2236, in to_dict
-    return to_dict(self, orient, into=into, index=index)
-  File "/home/intern2026-wntr-003/SUZURI/.venv/lib/python3.14/site-packages/pandas/core/methods/to_dict.py", line 259, in to_dict
-    raise ValueError("DataFrame index must be unique for orient='index'.")
-ValueError: DataFrame index must be unique for orient='index'.
+=== Phase 5: Model Training (LightGBM) ===
+Training started...
+Training until validation scores don't improve for 50 rounds
+[50]    training's auc: 1       valid_1's auc: 1
+Early stopping, best iteration is:
+[1]     training's auc: 1       valid_1's auc: 1
+
+>>> Validation AUC: 1.0000
+
+Top Important Features:
+               Feature          Gain
+1   creator_gini_index  21782.400391
+2  creator_tenure_days   3602.428040
+5        user_buy_rate      0.275801
+0  material_complexity      0.000000
+3     days_to_sale_end      0.000000
+4       is_sale_target      0.000000
+6                price      0.000000
