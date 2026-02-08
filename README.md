@@ -237,63 +237,50 @@ Sample of Cleaned Data (Top 3 rows):
 
 [3 rows x 5 columns]
 
-Loading CSV files...
- Loaded Products: 164997 rows
- Loaded Events:   504168 rows
- Loaded Creators: 26273 rows
- Loaded Sales:    56 rows
+Loading files...
 
-=== Phase 1: Preprocessing & Merging ===
+=== Phase 1: Preprocessing ===
 Merging Dataframes...
-Total Raw Records: 504168
 
-=== Phase 2: Noise Detection & Filtering ===
-Detecting Direct Buys...
-Noise Report:
- - Self Purchases: 0
- - Dominant Buyers: 213760
- - Direct Buys: 38982
-Records after cleaning: 279612 (Removed: 224556)
+=== Phase 2: Noise Cleaning ===
+Cleaned Records: 279612
 
 === Phase 3: Feature Engineering ===
-Processing Sale Features...
-Features Created.
 
-=== Phase 4: Dataset Construction (Negative Sampling) ===
-Creating Feature Dictionary...
-Positive samples: 5290
-Generating Negative Samples (Ratio 1:5)...
-Total Training Samples: 31740
+=== Phase 4: Dataset Construction (Hard Negatives) ===
+Downsampling negatives from 176366 to 52900...
+Positive Samples (Buy): 5290
+Negative Samples (View only): 52900
+Train Size: 46552
+Test Size:  11638
 
-=== Phase 5: Model Training (LightGBM) & Evaluation ===
-Training started...
+=== Phase 5: Training & Ranking Evaluation ===
 Training until validation scores don't improve for 50 rounds
-[50]    training's auc: 0.97934 valid_1's auc: 0.911657
-[100]   training's auc: 0.990118        valid_1's auc: 0.915371
+[50]    training's auc: 0.988587        valid_1's auc: 0.955109
+[100]   training's auc: 0.990526        valid_1's auc: 0.955558
+[150]   training's auc: 0.992369        valid_1's auc: 0.955188
 Early stopping, best iteration is:
-[60]    training's auc: 0.985032        valid_1's auc: 0.919269
+[110]   training's auc: 0.99076 valid_1's auc: 0.95575
+
+Calculating Ranking Metrics (Recall@K, MRR)...
 
 ========================================
-       MODEL EVALUATION METRICS       
+       RANKING EVALUATION       
+       (Task: Rerank User's Views) 
 ========================================
- AUC       : 0.9193
- LogLoss   : 0.2406
- Accuracy  : 0.9110
- Precision : 0.8385
- Recall    : 0.5676
- F1-Score  : 0.6770
+ Evaluated Users : 144
+ Recall@5        : 0.7986
+ Recall@10       : 0.8819
+ MRR (Mean Rank) : 0.6497
 ========================================
+ Overall AUC     : 0.9558
 
-Confusion Matrix:
- TN: 5191  FP: 114
- FN: 451  TP: 592
-
-Top Important Features:
-               Feature           Gain
-1   creator_gini_index  130945.739856
-5        user_buy_rate   25573.338160
-2  creator_tenure_days   12615.660749
-6                price    3428.144206
+Top Features:
+                Feature           Gain
+5        user_buy_rate  218897.971350
+2  creator_tenure_days    8427.309535
+6                price    8191.004975
+1   creator_gini_index    5803.829042
 0  material_complexity       0.000000
 4       is_sale_target       0.000000
 3     days_to_sale_end       0.000000
