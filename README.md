@@ -194,46 +194,35 @@ Explore/Exploit のバランス最適化が重要
 
 Loading files...
 
-=== Phase 1: Preprocessing & Noise Cleaning ===
+=== Phase 1: Preprocessing & Encoding ===
 Merging Dataframes...
-Removed Noise Records: 224556
-Remaining Clean Records: 279612
+Total Unique Items: 148043
 
-=== Phase 2: Strict Time-Series Split ===
-Data Range: 2025-01-01 00:01:50+00:00 to 2025-12-31 22:39:07+00:00
-Split Date: 2025-10-19 22:55:39.600000+00:00
-Train Logs: 239881
-Test Logs:  39731
+=== Phase 2: Noise Cleaning ===
+Cleaned Records: 279612
 
-=== Phase 3: Feature Engineering (No Leakage) ===
-Applying features to Train & Test...
+=== Phase 3: Split & Feature Engineering ===
+Train Logs: 273647
+Test Logs:  5965
 
-=== Phase 4: Dataset Construction (Hard Negatives) ===
-LGBM Train Samples: 29082
-Evaluation Candidates: 11075
-Target Users: 108
-
-=== Phase 5: Training & Model Comparison ===
-[1/3] Evaluating Random Model...
-  > Random: Recall@10 = 0.5926, MRR = 0.2713
-[2/3] Evaluating Popularity Model...
-  > Popularity: Recall@10 = 0.4352, MRR = 0.1355
-[3/3] Training & Evaluating LightGBM...
-  > LightGBM: Recall@10 = 0.5741, MRR = 0.1696
-
-LightGBM Feature Importance:
-                Feature           Gain
-7     popularity_score  233703.091278
-5        user_buy_rate   20517.097312
-2  creator_tenure_days    5141.136553
-6                price    4276.187777
-1   creator_gini_index    3415.757474
-0  material_complexity       0.000000
-3     days_to_sale_end       0.000000
-4       is_sale_target       0.000000
-
-=== FINAL RESULTS ===
-            Recall@10       MRR
-Random       0.592593  0.271297
-Popularity   0.435185  0.135471
-LightGBM     0.574074  0.169597
+=== Phase 4: Training Models ===
+Error: "['price'] not in index"
+Traceback (most recent call last):
+  File "/home/intern2026-wntr-003/SUZURI/final_3.py", line 290, in <module>
+    pipeline.run()
+    ~~~~~~~~~~~~^^
+  File "/home/intern2026-wntr-003/SUZURI/final_3.py", line 273, in run
+    self.train_models()
+    ~~~~~~~~~~~~~~~~~^^
+  File "/home/intern2026-wntr-003/SUZURI/final_3.py", line 170, in train_models
+    lgb_train = lgb.Dataset(train_df[self.lgbm_cols], train_df['target'])
+                            ~~~~~~~~^^^^^^^^^^^^^^^^
+  File "/home/intern2026-wntr-003/SUZURI/.venv/lib/python3.14/site-packages/pandas/core/frame.py", line 4384, in __getitem__
+    indexer = self.columns._get_indexer_strict(key, "columns")[1]
+              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^
+  File "/home/intern2026-wntr-003/SUZURI/.venv/lib/python3.14/site-packages/pandas/core/indexes/base.py", line 6302, in _get_indexer_strict
+    self._raise_if_missing(keyarr, indexer, axis_name)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/intern2026-wntr-003/SUZURI/.venv/lib/python3.14/site-packages/pandas/core/indexes/base.py", line 6355, in _raise_if_missing
+    raise KeyError(f"{not_found} not in index")
+KeyError: "['price'] not in index"
