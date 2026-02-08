@@ -5,6 +5,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import roc_auc_score
 import warnings
 import sys
+import gc
 
 # 警告の抑制
 warnings.filterwarnings('ignore')
@@ -32,25 +33,25 @@ class SuzuriFullPipeline:
         print("\n=== Phase 1: Preprocessing & Merging ===")
         
         # 1. 日時変換 (UTC統一でタイムゾーンエラーを回避)
-        # エラーハンドリング: 日時パースに失敗した場合はCoerce(NaT)にする
         self.log_df['accessed_at'] = pd.to_datetime(self.log_df['accessed_at'], utc=True, errors='coerce')
         self.creator_df['created_at'] = pd.to_datetime(self.creator_df['created_at'], utc=True, errors='coerce')
         self.sale_df['start_time'] = pd.to_datetime(self.sale_df['start_time'], utc=True, errors='coerce')
         self.sale_df['end_time'] = pd.to_datetime(self.sale_df['end_time'], utc=True, errors='coerce')
 
-        # NaTがある場合は除外（念のため）
+        # NaTがある場合は除外
         self.log_df = self.log_df.dropna(subset=['accessed_at'])
 
         # 2. マスタ結合
         print("Merging Dataframes...")
-        # product_id重複対策: 重複がある場合は最初の行を採用して結合
+        # 重複除去 (重要)
         unique_products = self.product_df.drop_duplicates(subset='product_id')
         unique_creators = self.creator_df.drop_duplicates(subset='creator_id')
         
+        # 結合
         self.full_df = self.log_df.merge(unique_products, on='product_id', how='left', suffixes=('', '_prod'))
         self.full_df = self.full_df.merge(unique_creators, on='creator_id', how='left', suffixes=('', '_creator'))
         
-        # 3. 時系列ソート
+        # 時系列ソート
         self.full_df.sort_values(['user_id', 'accessed_at'], inplace=True)
         print(f"Total Raw Records: {len(self.full_df)}")
 
@@ -63,11 +64,8 @@ class SuzuriFullPipeline:
 
         # --- A. 自己購入 (Self Purchase) ---
         is_self = (df['user_id'] == df['creator_id'])
-        # 名前カラムが存在する場合のみ名前一致もチェック
         if 'name' in df.columns and 'name_creator' in df.columns:
-            # fillna('') で欠損によるエラー防止
             is_self = is_self | (df['name'].fillna('') == df['name_creator'].fillna(''))
-        
         df['is_self_purchase'] = is_self
 
         # --- B. 身内買い・太客 (Dominant Buyer) ---
@@ -81,23 +79,19 @@ class SuzuriFullPipeline:
             sus_set = set(sus_pairs)
             
             # 高速化のため map と tuple を使用
-            df['temp_pair'] = list(zip(df['creator_id'], df['user_id']))
-            df['is_dominant_buyer'] = df['temp_pair'].isin(sus_set)
-            df.drop('temp_pair', axis=1, inplace=True)
+            temp_pairs = list(zip(df['creator_id'], df['user_id']))
+            df['is_dominant_buyer'] = [x in sus_set for x in temp_pairs]
         else:
             df['is_dominant_buyer'] = False
 
         # --- C. 閲覧なし購入 (Direct Buy) ---
         print("Detecting Direct Buys...")
-        # ユーザー×商品ごとのアクションセットを取得
         actions = df.groupby(['user_id', 'product_id'])['event_action'].apply(set)
-        # purchaseはあるがviewがないもの
         no_view_indices = actions[actions.apply(lambda x: 'purchase' in x and 'view' not in x)].index
         no_view_set = set(no_view_indices)
         
-        df['temp_pair'] = list(zip(df['user_id'], df['product_id']))
-        df['is_direct_buy'] = df['temp_pair'].isin(no_view_set)
-        df.drop('temp_pair', axis=1, inplace=True)
+        temp_pairs = list(zip(df['user_id'], df['product_id']))
+        df['is_direct_buy'] = [x in no_view_set for x in temp_pairs]
 
         # レポート
         print(f"Noise Report:")
@@ -113,6 +107,10 @@ class SuzuriFullPipeline:
         )
         self.full_df = df[clean_condition].copy()
         print(f"Records after cleaning: {len(self.full_df)} (Removed: {len(df) - len(self.full_df)})")
+        
+        # メモリ解放
+        del df
+        gc.collect()
 
     # ---------------------------------------------------------------------
     # Phase 3: 特徴量エンジニアリング (Feature Engineering)
@@ -121,14 +119,13 @@ class SuzuriFullPipeline:
         print("\n=== Phase 3: Feature Engineering ===")
         df = self.full_df
 
-        # 1. デザイン特徴量 (material_1...12)
+        # 1. デザイン特徴量
         mat_cols = [c for c in df.columns if str(c).startswith('material_') and c != 'material_url']
         df['material_complexity'] = df[mat_cols].notnull().sum(axis=1)
 
-        # 2. クリエイター特徴量 (Gini係数 & 活動期間)
+        # 2. クリエイター特徴量 (Gini & Tenure)
         purchases = df[df['event_action'] == 'purchase']
         
-        # Gini係数計算関数
         def calculate_gini(array):
             array = np.array(array, dtype=np.float64)
             if np.sum(array) == 0: return 0
@@ -151,28 +148,25 @@ class SuzuriFullPipeline:
         df['days_to_sale_end'] = 999.0
         df['is_sale_target'] = 0
 
-        # セールデータが空でない場合のみ処理
         if not self.sale_df.empty:
             for _, sale in self.sale_df.iterrows():
-                # 期間
                 t_mask = (df['accessed_at'] >= sale['start_time']) & (df['accessed_at'] <= sale['end_time'])
-                # アイテム一致 (item_category_name と sale['item'] の比較)
+                
+                # アイテムカテゴリ一致判定
                 if 'item_category_name' in df.columns and 'item' in sale:
                     i_mask = df['item_category_name'] == sale['item']
                     mask = t_mask & i_mask
                 else:
-                    mask = t_mask # カテゴリ情報がない場合は期間のみで判定
+                    mask = t_mask 
                 
                 if mask.any():
                     df.loc[mask, 'is_sale_target'] = 1
                     df.loc[mask, 'days_to_sale_end'] = (sale['end_time'] - df.loc[mask, 'accessed_at']).dt.total_seconds() / 86400
 
-        # 4. ユーザー行動特徴量 (Buy Rate)
+        # 4. ユーザー行動特徴量
         u_stats = df.groupby('user_id')['event_action'].value_counts().unstack(fill_value=0)
         if 'purchase' in u_stats.columns:
-            total_actions = u_stats.sum(axis=1)
-            # ゼロ除算回避
-            total_actions = total_actions.replace(0, 1)
+            total_actions = u_stats.sum(axis=1).replace(0, 1)
             df['user_buy_rate'] = df['user_id'].map(u_stats['purchase'] / total_actions).fillna(0)
         else:
             df['user_buy_rate'] = 0
@@ -181,22 +175,38 @@ class SuzuriFullPipeline:
         print("Features Created.")
 
     # ---------------------------------------------------------------------
-    # Phase 4: データセット構築 (Negative Sampling)
+    # Phase 4: データセット構築 (Negative Sampling) 【修正版】
     # ---------------------------------------------------------------------
     def create_dataset(self, negative_ratio=5):
         print("\n=== Phase 4: Dataset Construction (Negative Sampling) ===")
         
-        # 正例
+        # 1. 特徴量マスタの作成 (Product ID -> Features の対応表)
+        # ログデータ(full_df)から、計算済みの特徴量を抽出してマスタ化する
+        feature_cols = [
+            'product_id', 
+            'price', 
+            'material_complexity', 
+            'creator_gini_index', 
+            'creator_tenure_days'
+        ]
+        # full_dfに存在するカラムのみ使用
+        feature_cols = [c for c in feature_cols if c in self.full_df.columns]
+        
+        # 商品ごとに1行にする (平均値や最大値をとるなどして集約)
+        # ここではシンプルに drop_duplicates
+        print("Creating Feature Dictionary...")
+        feature_master = self.full_df[feature_cols].drop_duplicates('product_id').set_index('product_id')
+        feature_dict = feature_master.to_dict(orient='index')
+        
+        # 2. 正例データの作成
         positives = self.full_df[self.full_df['event_action'] == 'purchase'].copy()
         positives['target'] = 1
         
-        # 学習に使用する特徴量
-        candidates = [
+        use_features = [
             'material_complexity', 'creator_gini_index', 'creator_tenure_days',
             'days_to_sale_end', 'is_sale_target', 'user_buy_rate', 'price'
         ]
-        self.features = [c for c in candidates if c in positives.columns]
-        print(f"Using Features: {self.features}")
+        self.features = [c for c in use_features if c in positives.columns]
         
         base_cols = ['user_id', 'product_id', 'accessed_at', 'target'] + self.features
         pos_df = positives[base_cols]
@@ -206,19 +216,14 @@ class SuzuriFullPipeline:
             print("Error: No purchase data found after cleaning.")
             return
 
-        # 負例生成
-        # ★重要修正: product_idの重複を削除してから辞書化する (Index Error回避)
-        # 重複がある場合は最初の行を採用します
-        unique_products = self.product_df.drop_duplicates(subset='product_id')
-        prod_info = unique_products.set_index('product_id').to_dict(orient='index')
-        
-        all_pids = list(prod_info.keys())
+        # 3. 負例データの生成
+        # 特徴量が存在する商品IDリスト（ログに登場した商品のみを対象とする）
+        all_pids = list(feature_dict.keys())
         neg_samples = []
         
-        # 全量だと時間がかかるため、正例1件につきN件の負例を作る
         print(f"Generating Negative Samples (Ratio 1:{negative_ratio})...")
         
-        # tqdmがあればプログレスバー表示
+        # プログレスバー対応
         try:
             from tqdm import tqdm
             iterator = tqdm(pos_df.iterrows(), total=len(pos_df))
@@ -231,30 +236,36 @@ class SuzuriFullPipeline:
             u_buy_rate = row['user_buy_rate']
             
             for _ in range(negative_ratio):
+                # ランダムに商品を選択
                 neg_pid = np.random.choice(all_pids)
-                p_data = prod_info.get(neg_pid, {})
                 
-                # 特徴量の割り当て（簡易版: ランダム商品の属性を使用）
-                # 本来はマスタから正しく引き当てるべきだが、price等は辞書から取得
-                # 文脈依存(saleなど)は正例のコピー(非セールと仮定)
+                # ★修正点: 辞書から「本当の特徴量」を取得
+                f_data = feature_dict.get(neg_pid, {})
+                
                 sample = {
                     'user_id': uid,
                     'product_id': neg_pid,
                     'accessed_at': acc_time,
                     'target': 0,
-                    'user_buy_rate': u_buy_rate,
-                    'price': p_data.get('price', 0),
+                    'user_buy_rate': u_buy_rate, # ユーザー特徴量はそのまま
+                    
+                    # 商品・クリエイター特徴量はマスタから取得
+                    'price': f_data.get('price', 0),
+                    'material_complexity': f_data.get('material_complexity', 0),
+                    'creator_gini_index': f_data.get('creator_gini_index', 0),
+                    'creator_tenure_days': f_data.get('creator_tenure_days', 0),
+                    
+                    # 文脈依存特徴量は「非セール」と仮定
                     'is_sale_target': 0, 
-                    'days_to_sale_end': 999,
-                    'material_complexity': 1, 
-                    'creator_gini_index': 0,
-                    'creator_tenure_days': 365
+                    'days_to_sale_end': 999
                 }
                 neg_samples.append(sample)
 
+        # 4. 結合
         neg_df = pd.DataFrame(neg_samples)
         self.train_df = pd.concat([pos_df, neg_df], ignore_index=True)
         self.train_df.sort_values('accessed_at', inplace=True)
+        
         print(f"Total Training Samples: {len(self.train_df)}")
 
     # ---------------------------------------------------------------------
