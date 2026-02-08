@@ -136,10 +136,10 @@ class SuzuriAllItemBenchmark:
             
         # 商品マスタ情報の整備 (全商品に対する推論用)
         # 商品IDごとに、価格、クリエイターID、マテリアル数などを一意にする
-        prod_cols = ['item_idx', 'price', 'creator_idx', 'created_at']
         mat_cols = [c for c in self.clean_df.columns if str(c).startswith('material_') and c != 'material_url']
         
         # 商品マスタDF作成
+        # ここで drop_duplicates をしているので、item_idx は一意になります
         self.item_master = self.clean_df[['item_idx', 'price', 'creator_idx', 'created_at'] + mat_cols].drop_duplicates('item_idx').copy()
         self.item_master['material_complexity'] = self.item_master[mat_cols].notnull().sum(axis=1)
         self.item_master['creator_gini_index'] = self.item_master['creator_idx'].map(gini_map).fillna(0)
@@ -155,16 +155,21 @@ class SuzuriAllItemBenchmark:
     def train_models(self):
         print("\n=== Phase 4: Training Models ===")
         
-        # 1. LightGBM (Learning to Rank的なアプローチ)
+        # 1. LightGBM
         # 負例サンプリングをして学習
         pos = self.train_logs[self.train_logs['event_action'] == 'purchase'].copy()
         pos['target'] = 1
         neg = self.train_logs[self.train_logs['event_action'] == 'view'].sample(n=len(pos)*5, random_state=42).copy()
         neg['target'] = 0
         
-        train_df = pd.concat([pos, neg], ignore_index=True)
+        # ★修正点: カラム衝突を避けるため、必要なIDとターゲットだけを取り出して結合する
+        train_df = pd.concat([
+            pos[['user_idx', 'item_idx', 'target']], 
+            neg[['user_idx', 'item_idx', 'target']]
+        ], ignore_index=True)
         
-        # 特徴量結合
+        # 特徴量結合 (item_master から特徴量を付与)
+        # item_master には price や popularity_score がある
         train_df = train_df.merge(self.item_master[['item_idx'] + self.lgbm_cols], on='item_idx', how='left')
         
         lgb_train = lgb.Dataset(train_df[self.lgbm_cols], train_df['target'])
@@ -174,10 +179,10 @@ class SuzuriAllItemBenchmark:
         self.lgbm_model = lgb.train(params, lgb_train, num_boost_round=100)
         
         # 2. Collaborative Filtering (Item-based)
-        # 疎行列の作成 (User x Item)
-        # 購入を重み5, Viewを重み1とする
         print("Training Collaborative Filtering...")
-        self.train_logs['weight'] = self.train_logs['event_action'].map({'purchase': 5, 'view': 1, 'add_to_cart': 3}).fillna(1)
+        # 疎行列の作成
+        # SettingWithCopyWarningを避けるため .loc を使用
+        self.train_logs.loc[:, 'weight'] = self.train_logs['event_action'].map({'purchase': 5, 'view': 1, 'add_to_cart': 3}).fillna(1)
         
         row = self.train_logs['user_idx']
         col = self.train_logs['item_idx']
@@ -187,8 +192,7 @@ class SuzuriAllItemBenchmark:
         self.ui_matrix = sparse.csr_matrix((data, (row, col)), shape=(self.user_encoder.classes_.size, self.item_encoder.classes_.size))
         
         # Item-Item Similarity (Cosine)
-        # 計算量削減のため、TruncatedSVD等は使わず、単純な内積で類似度近似
-        # 本来は cosine similarity だが、高速化のため正規化なしの共起行列を使用
+        # 高速化のため正規化なしの共起行列を使用
         self.ii_sim = self.ui_matrix.T.dot(self.ui_matrix)
         
         print("Models Trained.")
@@ -203,8 +207,7 @@ class SuzuriAllItemBenchmark:
         test_purchases = self.test_logs[self.test_logs['event_action'] == 'purchase']
         target_users = test_purchases['user_idx'].unique()
         
-        # 計算時間短縮のため、ランダムに50人をサンプリングして評価
-        # (16万アイテム x 全ユーザーは時間がかかりすぎるため)
+        # 計算時間短縮のため、ランダムに50人をサンプリング
         if len(target_users) > 50:
             eval_users = np.random.choice(target_users, 50, replace=False)
             print(f"Sampling 50 users from {len(target_users)} active test users.")
@@ -217,43 +220,43 @@ class SuzuriAllItemBenchmark:
         
         results = {'Random': [], 'Popularity': [], 'CollaborativeFiltering': [], 'LightGBM': []}
         
+        # LightGBMのスコアは全アイテムに対して一度計算すれば使い回せる（ユーザー特徴量がないため）
+        # ※ユーザー特徴量(user_buy_rate等)を入れる場合はループ内で計算が必要
+        print("Pre-calculating LightGBM scores for all items...")
+        lgb_global_scores = self.lgbm_model.predict(self.item_master[self.lgbm_cols])
+        # スコア順に並び替えたインデックスを取得しておく
+        lgb_sorted_args = lgb_global_scores.argsort()[::-1]
+        lgb_top_items = self.item_master.iloc[lgb_sorted_args[:10]]['item_idx'].values
+        
+        # PopularityのTop10も固定なので事前計算
+        pop_recs = sorted(self.pop_map, key=self.pop_map.get, reverse=True)[:10]
+
         # --- 評価ループ ---
-        for uid in eval_users:
-            # 正解アイテム (このユーザーがテスト期間に買ったもの)
+        for i, uid in enumerate(eval_users):
+            if i % 10 == 0: print(f"Processing user {i+1}...")
+            
+            # 正解アイテム
             true_items = test_purchases[test_purchases['user_idx'] == uid]['item_idx'].values
             if len(true_items) == 0: continue
             
             # 1. Random
-            # 全アイテムからランダムに10個選んで、正解が含まれるか
-            # 確率的に計算: 1 - (不正解を選ぶ確率)
-            # 簡易的にシャッフルしてTop10を見る
             rand_recs = np.random.choice(all_item_indices, 10, replace=False)
             results['Random'].append(1 if len(set(true_items) & set(rand_recs)) > 0 else 0)
             
             # 2. Popularity
-            # 人気順Top10 (固定)
-            # pop_mapのキーを値でソート
-            pop_recs = sorted(self.pop_map, key=self.pop_map.get, reverse=True)[:10]
             results['Popularity'].append(1 if len(set(true_items) & set(pop_recs)) > 0 else 0)
             
             # 3. Collaborative Filtering
-            # User Vector (Train) * Item-Item Similarity
             u_vec = self.ui_matrix[uid]
             # スコア計算: [1 x Items]
             cf_scores = u_vec.dot(self.ii_sim).toarray().ravel()
-            # 既読アイテムを少し下げるなどの処理は省略（純粋なスコア）
             cf_recs = cf_scores.argsort()[::-1][:10]
             results['CollaborativeFiltering'].append(1 if len(set(true_items) & set(cf_recs)) > 0 else 0)
             
             # 4. LightGBM
-            # 全アイテムに対して推論
-            # ユーザー特徴量はない（今回は商品特徴量のみで勝負）
-            # もし user_buy_rate を入れるならここでbroadcastする
-            lgb_scores = self.lgbm_model.predict(self.item_master[self.lgbm_cols])
-            # インデックス順が item_master の並びなので、それをargsort
-            top_indices = lgb_scores.argsort()[::-1][:10]
-            lgb_recs = self.item_master.iloc[top_indices]['item_idx'].values
-            results['LightGBM'].append(1 if len(set(true_items) & set(lgb_recs)) > 0 else 0)
+            # 今回はユーザー特徴量を使っていないので、全員同じ「最適化されたランキング」が出る
+            # (PersonalizationなしのGlobal Optimization)
+            results['LightGBM'].append(1 if len(set(true_items) & set(lgb_top_items)) > 0 else 0)
 
         # 結果集計
         print("\n=== FINAL RESULTS (Global Recall@10) ===")
