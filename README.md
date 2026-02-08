@@ -192,32 +192,36 @@ Explore/Exploit のバランス最適化が重要
 
 
 
-Loading files...
-
-=== Phase 1: Preprocessing & Encoding ===
+=== Phase 1: Preprocessing & Cleaning ===
 Merging Dataframes...
-Total Unique Items: 148043
+Cleaning Noise...
+Clean Records: 504168
 
-=== Phase 2: Noise Cleaning ===
-Cleaned Records: 279612
+=== Phase 2: Feature Engineering (User Preferences) ===
+Train: 493817, Test: 10351
+Calculating User Profiles...
 
-=== Phase 3: Split & Feature Engineering ===
-Train Logs: 273647
-Test Logs:  5965
+=== Phase 3: Creating Training Dataset ===
 
 === Phase 4: Training LightGBM ===
-Training started...
-LightGBM Trained.
+Feature Importance:
+             Feature           Gain
+0        popularity  410212.444543
+1             price   29600.726333
+4  price_diff_score   15035.754172
+3       price_ratio   12674.429297
+2      is_cat_match    2715.989807
 
-=== Phase 5: Global Ranking Evaluation (Recall@10 on ALL Items) ===
-Evaluating all 15 active test users.
-Pre-calculating LightGBM scores for all items...
+=== Phase 5: Evaluation (Candidate Generation + Re-ranking) ===
+Evaluating 50 users...
 Processing user 1...
 Processing user 11...
+Processing user 21...
+Processing user 31...
+Processing user 41...
 
 === FINAL RESULTS (Global Recall@10) ===
-Evaluated on 15 users against 107587 items.
-        Model  Recall@10
-0      Random        0.0
-1  Popularity        0.0
-2    LightGBM        0.0
+             Model  Recall@10
+0           Random       0.00
+1       Popularity       0.00
+2  LightGBM_Rerank       0.02
