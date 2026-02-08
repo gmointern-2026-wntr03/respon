@@ -192,25 +192,47 @@ Explore/Exploit のバランス最適化が重要
 
 
 
- File "/home/intern2026-wntr-003/SUZURI/final_1.py", line 166, in engineer_features
-    time_mask = (df['accessed_at'] >= sale['start_time']) & (df['accessed_at'] <= sale['end_time'])
-                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/intern2026-wntr-003/SUZURI/.venv/lib/python3.14/site-packages/pandas/core/ops/common.py", line 85, in new_method
-    return method(self, other)
-  File "/home/intern2026-wntr-003/SUZURI/.venv/lib/python3.14/site-packages/pandas/core/arraylike.py", line 62, in __ge__
-    return self._cmp_method(other, operator.ge)
-           ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^
-  File "/home/intern2026-wntr-003/SUZURI/.venv/lib/python3.14/site-packages/pandas/core/series.py", line 6735, in _cmp_method
-    res_values = ops.comparison_op(lvalues, rvalues, op)
-  File "/home/intern2026-wntr-003/SUZURI/.venv/lib/python3.14/site-packages/pandas/core/ops/array_ops.py", line 337, in comparison_op
-    res_values = op(lvalues, rvalues)
-  File "/home/intern2026-wntr-003/SUZURI/.venv/lib/python3.14/site-packages/pandas/core/ops/common.py", line 85, in new_method
-    return method(self, other)
-  File "/home/intern2026-wntr-003/SUZURI/.venv/lib/python3.14/site-packages/pandas/core/arraylike.py", line 62, in __ge__
-    return self._cmp_method(other, operator.ge)
-           ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^
-  File "/home/intern2026-wntr-003/SUZURI/.venv/lib/python3.14/site-packages/pandas/core/arrays/datetimelike.py", line 995, in _cmp_method
-    return invalid_comparison(self, other, op)
-  File "/home/intern2026-wntr-003/SUZURI/.venv/lib/python3.14/site-packages/pandas/core/ops/invalid.py", line 55, in invalid_comparison
-    raise TypeError(f"Invalid comparison between dtype={left.dtype} and {typ}")
-TypeError: Invalid comparison between dtype=datetime64[us, UTC] and Timestamp
+=== Generating Dummy Data for Testing ===
+--- [1/6] Preprocessing & Merging ---
+Total Log Records: 591954
+--- [2/6] Detecting Noise & Suspicious Transactions ---
+--- [3/6] Feature Engineering ---
+--- [4/6] Creating Clean Data Mart (Filtering) ---
+Original Records: 591954
+Cleaned Records:  591954
+Removed Records:  0
+--- [5/6] Running Deep Dive Analysis ---
+Analysis 1: Cross-Selling Potential...
+Top 5 Materials used in Cross-Selling:
+material_url
+https://d1q9av5b648rmv.cloudfront.net/v3/400x400/17226588/1738865215-1280x1280.png.png?h=c709015d52bbedaceb1f83fe62d823524d30f2c0    5
+https://d1q9av5b648rmv.cloudfront.net/v3/400x400/18449055/1755781245-2664x3548.jpg.png?h=9fe62e014b716bed200cb997b34641bdd89b9576    4
+https://d1q9av5b648rmv.cloudfront.net/v3/400x400/17073923/1735504136-1000x1000.png.png?h=d910f1310f9c0cd8cb31390a24d944b74e9b5a87    3
+https://d1q9av5b648rmv.cloudfront.net/v3/400x400/17083041/1735772885-1284x1340.jpg.png?h=98e818d0231ff373977699ac023718b2402daee4    3
+https://d1q9av5b648rmv.cloudfront.net/v3/400x400/18027424/1750152463-1280x1280.png.png?h=2d0974564ed1b19bd51f155a3cf8514aa7bf2e68    3
+Name: count, dtype: int64
+
+Analysis 2: Price & Profit Analysis...
+Correlation Matrix:
+                  price    profit  profit_margin       cvr
+price          1.000000  0.616604      -0.261249  0.008386
+profit         0.616604  1.000000       0.535037 -0.021541
+profit_margin -0.261249  0.535037       1.000000 -0.033607
+cvr            0.008386 -0.021541      -0.033607  1.000000
+
+Analysis 3: Text Mining (Top Keywords)...
+Top Keywords: ['amami' 'com' 'dog' 'https' 'men' 'www' 'お値段変わります' 'さあ'
+ 'それぞれのカラーを選択されますと' 'それぞれのカラーを選択されますとお値段をご確認いただけます' 'できあがりイメージがご確認いただけます'
+ 'タイトル' 'チームasuka' 'デザインが染み込まないよう工程がプラスされるため' 'デザインが染み込んだような仕上がりになります'
+ 'ハブ' '濃いお色のボディをご希望ですと' '画像タイトル' '画像説明' '薄いお色のボディは']
+
+--- Processing Complete ---
+Noise Report: {'self_purchase_count': np.int64(0), 'dominant_buyer_transactions': 259584, 'direct_buy_transactions': 46931}
+
+Sample of Cleaned Data (Top 3 rows):
+                                             user_id  product_id  ... is_sale_target  creator_gini_index
+0  0001612a3121be9136950b33ca144e4337b0759a68ce62...    58403574  ...          False                 0.0
+1  0001612a3121be9136950b33ca144e4337b0759a68ce62...    47733744  ...          False                 0.0
+2  0001612a3121be9136950b33ca144e4337b0759a68ce62...    17076616  ...          False                 0.0
+
+[3 rows x 5 columns]
