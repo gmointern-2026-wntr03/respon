@@ -236,3 +236,26 @@ Sample of Cleaned Data (Top 3 rows):
 2  0001612a3121be9136950b33ca144e4337b0759a68ce62...    17076616  ...          False                 0.0
 
 [3 rows x 5 columns]
+
+
+
+
+Traceback (most recent call last):
+  File "/home/intern2026-wntr-003/SUZURI/final_2.py", line 3, in <module>
+    import lightgbm as lgb
+  File "/home/intern2026-wntr-003/SUZURI/.venv/lib/python3.14/site-packages/lightgbm/__init__.py", line 11, in <module>
+    from .basic import Booster, Dataset, Sequence, register_logger
+  File "/home/intern2026-wntr-003/SUZURI/.venv/lib/python3.14/site-packages/lightgbm/basic.py", line 9, in <module>
+    from .libpath import _LIB  # isort: skip
+    ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/intern2026-wntr-003/SUZURI/.venv/lib/python3.14/site-packages/lightgbm/libpath.py", line 49, in <module>
+    _LIB = ctypes.cdll.LoadLibrary(_find_lib_path()[0])
+  File "/home/linuxbrew/.linuxbrew/opt/python@3.14/lib/python3.14/ctypes/__init__.py", line 552, in LoadLibrary
+    return self._dlltype(name)
+           ~~~~~~~~~~~~~^^^^^^
+  File "/home/linuxbrew/.linuxbrew/opt/python@3.14/lib/python3.14/ctypes/__init__.py", line 433, in __init__
+    self._handle = self._load_library(name, mode, handle, winmode)
+                   ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/linuxbrew/.linuxbrew/opt/python@3.14/lib/python3.14/ctypes/__init__.py", line 473, in _load_library
+    return _dlopen(name, mode)
+OSError: libgomp.so.1: cannot open shared object file: No such file or directory
