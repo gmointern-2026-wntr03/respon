@@ -2,7 +2,15 @@ import pandas as pd
 import numpy as np
 import lightgbm as lgb
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import (
+    roc_auc_score, 
+    accuracy_score, 
+    precision_score, 
+    recall_score, 
+    f1_score, 
+    log_loss, 
+    confusion_matrix
+)
 import warnings
 import sys
 import gc
@@ -175,13 +183,12 @@ class SuzuriFullPipeline:
         print("Features Created.")
 
     # ---------------------------------------------------------------------
-    # Phase 4: データセット構築 (Negative Sampling) 【修正版】
+    # Phase 4: データセット構築 (Negative Sampling)
     # ---------------------------------------------------------------------
     def create_dataset(self, negative_ratio=5):
         print("\n=== Phase 4: Dataset Construction (Negative Sampling) ===")
         
-        # 1. 特徴量マスタの作成 (Product ID -> Features の対応表)
-        # ログデータ(full_df)から、計算済みの特徴量を抽出してマスタ化する
+        # 1. 特徴量マスタの作成
         feature_cols = [
             'product_id', 
             'price', 
@@ -189,11 +196,8 @@ class SuzuriFullPipeline:
             'creator_gini_index', 
             'creator_tenure_days'
         ]
-        # full_dfに存在するカラムのみ使用
         feature_cols = [c for c in feature_cols if c in self.full_df.columns]
         
-        # 商品ごとに1行にする (平均値や最大値をとるなどして集約)
-        # ここではシンプルに drop_duplicates
         print("Creating Feature Dictionary...")
         feature_master = self.full_df[feature_cols].drop_duplicates('product_id').set_index('product_id')
         feature_dict = feature_master.to_dict(orient='index')
@@ -217,13 +221,11 @@ class SuzuriFullPipeline:
             return
 
         # 3. 負例データの生成
-        # 特徴量が存在する商品IDリスト（ログに登場した商品のみを対象とする）
         all_pids = list(feature_dict.keys())
         neg_samples = []
         
         print(f"Generating Negative Samples (Ratio 1:{negative_ratio})...")
         
-        # プログレスバー対応
         try:
             from tqdm import tqdm
             iterator = tqdm(pos_df.iterrows(), total=len(pos_df))
@@ -236,10 +238,7 @@ class SuzuriFullPipeline:
             u_buy_rate = row['user_buy_rate']
             
             for _ in range(negative_ratio):
-                # ランダムに商品を選択
                 neg_pid = np.random.choice(all_pids)
-                
-                # ★修正点: 辞書から「本当の特徴量」を取得
                 f_data = feature_dict.get(neg_pid, {})
                 
                 sample = {
@@ -247,15 +246,11 @@ class SuzuriFullPipeline:
                     'product_id': neg_pid,
                     'accessed_at': acc_time,
                     'target': 0,
-                    'user_buy_rate': u_buy_rate, # ユーザー特徴量はそのまま
-                    
-                    # 商品・クリエイター特徴量はマスタから取得
+                    'user_buy_rate': u_buy_rate, 
                     'price': f_data.get('price', 0),
                     'material_complexity': f_data.get('material_complexity', 0),
                     'creator_gini_index': f_data.get('creator_gini_index', 0),
                     'creator_tenure_days': f_data.get('creator_tenure_days', 0),
-                    
-                    # 文脈依存特徴量は「非セール」と仮定
                     'is_sale_target': 0, 
                     'days_to_sale_end': 999
                 }
@@ -269,10 +264,10 @@ class SuzuriFullPipeline:
         print(f"Total Training Samples: {len(self.train_df)}")
 
     # ---------------------------------------------------------------------
-    # Phase 5: モデル学習 (LightGBM)
+    # Phase 5: モデル学習 (LightGBM) & 評価
     # ---------------------------------------------------------------------
     def train_model(self):
-        print("\n=== Phase 5: Model Training (LightGBM) ===")
+        print("\n=== Phase 5: Model Training (LightGBM) & Evaluation ===")
         
         if self.train_df is None or len(self.train_df) == 0:
             print("No training data available.")
@@ -313,12 +308,39 @@ class SuzuriFullPipeline:
             ]
         )
         
-        # 評価
+        # --- 評価指標の算出 ---
         if len(X_valid) > 0:
+            # 確率予測
             preds = self.model.predict(X_valid)
-            auc = roc_auc_score(y_valid, preds)
-            print(f"\n>>> Validation AUC: {auc:.4f}")
+            # クラス分類 (閾値0.5)
+            pred_labels = (preds >= 0.5).astype(int)
             
+            # 各指標の計算
+            auc = roc_auc_score(y_valid, preds)
+            logloss = log_loss(y_valid, preds)
+            acc = accuracy_score(y_valid, pred_labels)
+            prec = precision_score(y_valid, pred_labels)
+            rec = recall_score(y_valid, pred_labels)
+            f1 = f1_score(y_valid, pred_labels)
+            
+            print("\n" + "="*40)
+            print("       MODEL EVALUATION METRICS       ")
+            print("="*40)
+            print(f" AUC       : {auc:.4f}")
+            print(f" LogLoss   : {logloss:.4f}")
+            print(f" Accuracy  : {acc:.4f}")
+            print(f" Precision : {prec:.4f}")
+            print(f" Recall    : {rec:.4f}")
+            print(f" F1-Score  : {f1:.4f}")
+            print("="*40)
+            
+            # 混同行列
+            cm = confusion_matrix(y_valid, pred_labels)
+            print("\nConfusion Matrix:")
+            print(f" TN: {cm[0,0]}  FP: {cm[0,1]}")
+            print(f" FN: {cm[1,0]}  TP: {cm[1,1]}")
+
+            # 重要度
             importance = pd.DataFrame({
                 'Feature': self.features,
                 'Gain': self.model.feature_importance(importance_type='gain')
