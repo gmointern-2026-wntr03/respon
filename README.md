@@ -192,4 +192,25 @@ Explore/Exploit のバランス最適化が重要
 
 
 
-
+ File "/home/intern2026-wntr-003/SUZURI/final_1.py", line 166, in engineer_features
+    time_mask = (df['accessed_at'] >= sale['start_time']) & (df['accessed_at'] <= sale['end_time'])
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/intern2026-wntr-003/SUZURI/.venv/lib/python3.14/site-packages/pandas/core/ops/common.py", line 85, in new_method
+    return method(self, other)
+  File "/home/intern2026-wntr-003/SUZURI/.venv/lib/python3.14/site-packages/pandas/core/arraylike.py", line 62, in __ge__
+    return self._cmp_method(other, operator.ge)
+           ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^
+  File "/home/intern2026-wntr-003/SUZURI/.venv/lib/python3.14/site-packages/pandas/core/series.py", line 6735, in _cmp_method
+    res_values = ops.comparison_op(lvalues, rvalues, op)
+  File "/home/intern2026-wntr-003/SUZURI/.venv/lib/python3.14/site-packages/pandas/core/ops/array_ops.py", line 337, in comparison_op
+    res_values = op(lvalues, rvalues)
+  File "/home/intern2026-wntr-003/SUZURI/.venv/lib/python3.14/site-packages/pandas/core/ops/common.py", line 85, in new_method
+    return method(self, other)
+  File "/home/intern2026-wntr-003/SUZURI/.venv/lib/python3.14/site-packages/pandas/core/arraylike.py", line 62, in __ge__
+    return self._cmp_method(other, operator.ge)
+           ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^
+  File "/home/intern2026-wntr-003/SUZURI/.venv/lib/python3.14/site-packages/pandas/core/arrays/datetimelike.py", line 995, in _cmp_method
+    return invalid_comparison(self, other, op)
+  File "/home/intern2026-wntr-003/SUZURI/.venv/lib/python3.14/site-packages/pandas/core/ops/invalid.py", line 55, in invalid_comparison
+    raise TypeError(f"Invalid comparison between dtype={left.dtype} and {typ}")
+TypeError: Invalid comparison between dtype=datetime64[us, UTC] and Timestamp
