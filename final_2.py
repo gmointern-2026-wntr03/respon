@@ -1,31 +1,34 @@
 import pandas as pd
 import numpy as np
 import lightgbm as lgb
-from sklearn.metrics import roc_auc_score, log_loss
+from sklearn.metrics import roc_auc_score
 import warnings
 import gc
 
 # 警告の抑制
 warnings.filterwarnings('ignore')
 
-class SuzuriRankPipeline:
+class SuzuriStrictBenchmark:
     def __init__(self, log_df, product_df, creator_df, sale_df):
         self.log_df = log_df.copy()
         self.product_df = product_df.copy()
         self.creator_df = creator_df.copy()
         self.sale_df = sale_df.copy()
         
-        self.full_df = None
+        # データ格納用
         self.train_df = None
-        self.test_df = None  # ランキング評価用
-        self.model = None
-        self.features = []
+        self.test_df = None
+        self.feature_cols = []
+        
+        # 結果格納用
+        self.results = {}
 
     # ---------------------------------------------------------------------
-    # Phase 1: 前処理 (UTC統一・マスタ結合)
+    # Phase 1: 前処理 & 時系列分割 (Strict Split)
     # ---------------------------------------------------------------------
-    def preprocess(self):
-        print("\n=== Phase 1: Preprocessing ===")
+    def preprocess_and_split(self):
+        print("\n=== Phase 1: Preprocessing & Strict Split ===")
+        
         # 日時変換
         self.log_df['accessed_at'] = pd.to_datetime(self.log_df['accessed_at'], utc=True, errors='coerce')
         self.creator_df['created_at'] = pd.to_datetime(self.creator_df['created_at'], utc=True, errors='coerce')
@@ -40,61 +43,33 @@ class SuzuriRankPipeline:
         
         self.full_df = self.log_df.merge(unique_products, on='product_id', how='left', suffixes=('', '_prod'))
         self.full_df = self.full_df.merge(unique_creators, on='creator_id', how='left', suffixes=('', '_creator'))
-        self.full_df.sort_values(['user_id', 'accessed_at'], inplace=True)
+        self.full_df.sort_values('accessed_at', inplace=True)
 
-    # ---------------------------------------------------------------------
-    # Phase 2: ノイズ除去
-    # ---------------------------------------------------------------------
-    def clean_noise(self):
-        print("\n=== Phase 2: Noise Cleaning ===")
-        df = self.full_df
-
-        # A. 自己購入
-        is_self = (df['user_id'] == df['creator_id'])
-        if 'name' in df.columns and 'name_creator' in df.columns:
-            is_self = is_self | (df['name'].fillna('') == df['name_creator'].fillna(''))
+        # ★厳密な時系列分割★
+        # 全期間のラスト14日間（または20%）をテストデータにする
+        # これにより「未来のデータ」は学習に一切使われない
+        split_date = self.full_df['accessed_at'].max() - pd.Timedelta(days=14)
         
-        # B. 太客 (Dominant Buyer)
-        purchases = df[df['event_action'] == 'purchase']
-        if not purchases.empty:
-            c_total = purchases.groupby('creator_id').size()
-            c_user = purchases.groupby(['creator_id', 'user_id']).size()
-            dominance = (c_user / c_total.reindex(c_user.index.get_level_values(0)).values)
-            sus_set = set(dominance[dominance >= 0.8].index.tolist())
-            temp_pairs = list(zip(df['creator_id'], df['user_id']))
-            is_dominant = [x in sus_set for x in temp_pairs]
-        else:
-            is_dominant = [False] * len(df)
-
-        # C. 閲覧なし購入 (Direct Buy)
-        # 今回は「ViewとPurchaseの差」を見るため、Direct Buyは厳密に除外
-        actions = df.groupby(['user_id', 'product_id'])['event_action'].apply(set)
-        no_view_indices = actions[actions.apply(lambda x: 'purchase' in x and 'view' not in x)].index
-        no_view_set = set(no_view_indices)
-        temp_pairs = list(zip(df['user_id'], df['product_id']))
-        is_direct = [x in no_view_set for x in temp_pairs]
-
-        # フィルタリング
-        clean_condition = (~is_self) & (~np.array(is_dominant)) & (~np.array(is_direct))
-        self.full_df = df[clean_condition].copy()
+        print(f"Split Date: {split_date}")
         
-        print(f"Cleaned Records: {len(self.full_df)}")
-        del df
-        gc.collect()
+        self.train_logs = self.full_df[self.full_df['accessed_at'] < split_date].copy()
+        self.test_logs = self.full_df[self.full_df['accessed_at'] >= split_date].copy()
+        
+        print(f"Train Logs: {len(self.train_logs)}")
+        print(f"Test Logs:  {len(self.test_logs)}")
 
     # ---------------------------------------------------------------------
-    # Phase 3: 特徴量エンジニアリング
+    # Phase 2: 特徴量生成 (Leakage Prevention)
     # ---------------------------------------------------------------------
     def engineer_features(self):
-        print("\n=== Phase 3: Feature Engineering ===")
-        df = self.full_df
-
-        # デザイン複雑度
-        mat_cols = [c for c in df.columns if str(c).startswith('material_') and c != 'material_url']
-        df['material_complexity'] = df[mat_cols].notnull().sum(axis=1)
-
-        # クリエイター特徴量
-        purchases = df[df['event_action'] == 'purchase']
+        print("\n=== Phase 2: Feature Engineering (Train Data Only) ===")
+        
+        # ★重要: 特徴量は「Trainログ」だけを使って計算する
+        
+        # 1. 商品・クリエイター特徴量 (Giniなど)
+        purchases = self.train_logs[self.train_logs['event_action'] == 'purchase']
+        
+        # Gini係数計算
         def calculate_gini(array):
             array = np.array(array, dtype=np.float64)
             if np.sum(array) == 0: return 0
@@ -104,202 +79,176 @@ class SuzuriRankPipeline:
             n = array.shape[0]
             return ((np.sum((2 * index - n - 1) * array)) / (n * np.sum(array)))
 
+        gini_map = {}
         if not purchases.empty:
             gini_series = purchases.groupby('creator_id')['user_id'].apply(lambda x: calculate_gini(x.value_counts().values))
-            df['creator_gini_index'] = df['creator_id'].map(gini_series).fillna(0)
-        else:
-            df['creator_gini_index'] = 0
-        
-        df['creator_tenure_days'] = (df['accessed_at'] - df['created_at']).dt.days
+            gini_map = gini_series.to_dict()
 
-        # セール特徴量
-        df['days_to_sale_end'] = 999.0
-        df['is_sale_target'] = 0
-        if not self.sale_df.empty:
-            for _, sale in self.sale_df.iterrows():
-                t_mask = (df['accessed_at'] >= sale['start_time']) & (df['accessed_at'] <= sale['end_time'])
-                if 'item_category_name' in df.columns and 'item' in sale:
-                    mask = t_mask & (df['item_category_name'] == sale['item'])
-                else:
-                    mask = t_mask
-                if mask.any():
-                    df.loc[mask, 'is_sale_target'] = 1
-                    df.loc[mask, 'days_to_sale_end'] = (sale['end_time'] - df.loc[mask, 'accessed_at']).dt.total_seconds() / 86400
+        # 2. 人気度特徴量 (Popularity) - ベースライン用にも使う
+        popularity_map = purchases['product_id'].value_counts().to_dict()
 
-        # ユーザー行動特徴量
-        u_stats = df.groupby('user_id')['event_action'].value_counts().unstack(fill_value=0)
-        if 'purchase' in u_stats.columns:
-            total_actions = u_stats.sum(axis=1).replace(0, 1)
-            df['user_buy_rate'] = df['user_id'].map(u_stats['purchase'] / total_actions).fillna(0)
-        else:
-            df['user_buy_rate'] = 0
-
-        self.full_df = df
-
-    # ---------------------------------------------------------------------
-    # Phase 4: データセット構築 (Hard Negative: View but No Purchase)
-    # ---------------------------------------------------------------------
-    def create_dataset(self):
-        print("\n=== Phase 4: Dataset Construction (Hard Negatives) ===")
-        
-        # 1. 正例 (Purchase)
-        positives = self.full_df[self.full_df['event_action'] == 'purchase'].copy()
-        positives['target'] = 1
-        
-        # 2. 負例 (Hard Negative: View Only)
-        # 購入に至らなかったViewイベントを抽出
-        # まず、(user, product) のペアで「購入あり」のものを特定
-        purchase_pairs = set(zip(positives['user_id'], positives['product_id']))
-        
-        views = self.full_df[self.full_df['event_action'] == 'view'].copy()
-        
-        # applyだと遅いので、merge (anti-join) で「購入済みペア」を除外
-        # 一時的にフラグを立てる
-        positives_keys = positives[['user_id', 'product_id']].drop_duplicates()
-        positives_keys['is_bought'] = True
-        
-        views = views.merge(positives_keys, on=['user_id', 'product_id'], how='left')
-        
-        # is_bought が NaN のもの = 見たけど買わなかったもの
-        negatives = views[views['is_bought'].isna()].copy()
-        negatives['target'] = 0
-        negatives.drop('is_bought', axis=1, inplace=True)
-        
-        # データバランスの調整（負例が多すぎる場合、正例の10倍程度にダウンサンプリング）
-        if len(negatives) > len(positives) * 10:
-            print(f"Downsampling negatives from {len(negatives)} to {len(positives)*10}...")
-            negatives = negatives.sample(n=len(positives) * 10, random_state=42)
+        # 3. 特徴量をマッピングする関数
+        def apply_features(df):
+            # マテリアル複雑度 (これは静的なのでOK)
+            mat_cols = [c for c in df.columns if str(c).startswith('material_') and c != 'material_url']
+            df['material_complexity'] = df[mat_cols].notnull().sum(axis=1)
             
-        print(f"Positive Samples (Buy): {len(positives)}")
-        print(f"Negative Samples (View only): {len(negatives)}")
+            # Trainで計算したGiniをマップ (新規クリエイターは0)
+            df['creator_gini_index'] = df['creator_id'].map(gini_map).fillna(0)
+            
+            # 活動期間
+            df['creator_tenure_days'] = (df['accessed_at'] - df['created_at']).dt.days
+            
+            # Trainでの人気度 (新規商品は0)
+            df['popularity_score'] = df['product_id'].map(popularity_map).fillna(0)
+            
+            # 価格
+            df['price'] = df['price'].fillna(0)
+            
+            return df
+
+        # TrainとTestそれぞれに適用
+        self.train_dataset = apply_features(self.train_logs.copy())
+        self.test_dataset = apply_features(self.test_logs.copy())
         
-        # 結合
-        dataset = pd.concat([positives, negatives], ignore_index=True)
-        dataset.sort_values('accessed_at', inplace=True)
-        
-        # 特徴量の選定
-        candidates = [
-            'material_complexity', 'creator_gini_index', 'creator_tenure_days',
-            'days_to_sale_end', 'is_sale_target', 'user_buy_rate', 'price'
+        # 学習に使う特徴量
+        self.feature_cols = [
+            'material_complexity', 'creator_gini_index', 'creator_tenure_days', 
+            'popularity_score', 'price'
         ]
-        self.features = [c for c in candidates if c in dataset.columns]
+        # ※ user_buy_rate はリークしやすいので今回は除外（厳密性重視）
         
-        # 3. 時系列分割 (Train / Test)
-        # ここで単純なランダム分割ではなく、ユーザーごとの未来予測にするため時間を基準にする
-        # 全期間の後半20%をテストにする
-        split_point = int(len(dataset) * 0.8)
-        self.train_df = dataset.iloc[:split_point]
-        self.test_df = dataset.iloc[split_point:]
-        
-        print(f"Train Size: {len(self.train_df)}")
-        print(f"Test Size:  {len(self.test_df)}")
+        print(f"Features Used: {self.feature_cols}")
 
     # ---------------------------------------------------------------------
-    # Phase 5: 学習 & ランキング評価 (Ranking Evaluation)
+    # Phase 3: データセット構築 (Re-ranking Task)
+    # ---------------------------------------------------------------------
+    def create_ranking_dataset(self):
+        print("\n=== Phase 3: Dataset Construction for Ranking ===")
+        
+        # 学習用: Hard Negative (Viewしたけど買わなかったものを負例に)
+        train_pos = self.train_dataset[self.train_dataset['event_action'] == 'purchase'].copy()
+        train_pos['target'] = 1
+        
+        # 負例: Viewのみ
+        # 高速化のため、Train期間のViewからランダムサンプリングして「買ってない」とみなす簡易手法
+        # (厳密にはAnti-joinすべきだが、メモリ節約のため簡略化)
+        train_neg = self.train_dataset[self.train_dataset['event_action'] == 'view'].sample(n=len(train_pos)*5, random_state=42).copy()
+        train_neg['target'] = 0
+        
+        self.train_df = pd.concat([train_pos, train_neg], ignore_index=True)
+        
+        # 評価用: Testデータに含まれる「View」と「Purchase」をユーザーごとにまとめる
+        # ターゲット: 実際にPurchaseしたアイテム
+        # 候補: そのユーザーがTest期間にViewした全アイテム
+        
+        # Test期間に購入履歴があるユーザーのみ抽出
+        test_purchases = self.test_dataset[self.test_dataset['event_action'] == 'purchase']
+        valid_users = test_purchases['user_id'].unique()
+        
+        self.test_eval_df = self.test_dataset[self.test_dataset['user_id'].isin(valid_users)].copy()
+        
+        # ターゲットフラグ作成
+        # 同一セッション内で Purchase されたものを 1, View だけを 0 にしたいが
+        # ここではシンプルに event_action == purchase を 1 とする
+        self.test_eval_df['target'] = (self.test_eval_df['event_action'] == 'purchase').astype(int)
+        
+        print(f"Train Samples: {len(self.train_df)}")
+        print(f"Test Eval Users: {len(valid_users)}")
+
+    # ---------------------------------------------------------------------
+    # Phase 4: モデル学習 & 比較評価
     # ---------------------------------------------------------------------
     def train_and_evaluate(self):
-        print("\n=== Phase 5: Training & Ranking Evaluation ===")
+        print("\n=== Phase 4: Training & Benchmarking ===")
         
-        # --- LightGBM 学習 ---
-        X_train = self.train_df[self.features]
+        # --- 1. Random Model (Baseline) ---
+        print("Evaluating: Random Model...")
+        self.test_eval_df['score_random'] = np.random.rand(len(self.test_eval_df))
+        self.evaluate_model('Random', 'score_random')
+
+        # --- 2. Popularity Model (Baseline) ---
+        print("Evaluating: Popularity Model...")
+        # Train期間の人気度をスコアにする
+        self.test_eval_df['score_pop'] = self.test_eval_df['popularity_score']
+        self.evaluate_model('Popularity', 'score_pop')
+
+        # --- 3. LightGBM (Main Model) ---
+        print("Training: LightGBM...")
+        X_train = self.train_df[self.feature_cols]
         y_train = self.train_df['target']
-        # 検証用データとしてテストデータの20%を使う（ランキング評価とは別）
-        X_val = self.test_df[self.features]
-        y_val = self.test_df['target']
         
         lgb_train = lgb.Dataset(X_train, y_train)
-        lgb_val = lgb.Dataset(X_val, y_val, reference=lgb_train)
         
         params = {
             'objective': 'binary',
-            'metric': 'auc', # 学習時はAUCで最適化
+            'metric': 'auc',
             'verbosity': -1,
             'learning_rate': 0.05,
             'num_leaves': 31
         }
         
-        self.model = lgb.train(
-            params, lgb_train, valid_sets=[lgb_train, lgb_val],
-            num_boost_round=1000,
-            callbacks=[lgb.early_stopping(50), lgb.log_evaluation(50)]
-        )
+        model = lgb.train(params, lgb_train, num_boost_round=500)
         
-        # --- ランキング評価 (Recall@K / MRR) ---
-        print("\nCalculating Ranking Metrics (Recall@K, MRR)...")
+        print("Evaluating: LightGBM...")
+        self.test_eval_df['score_lgbm'] = model.predict(self.test_eval_df[self.feature_cols])
+        self.evaluate_model('LightGBM', 'score_lgbm')
         
-        # テストデータに対してスコア予測
-        test_data = self.test_df.copy()
-        test_data['pred_score'] = self.model.predict(test_data[self.features])
-        
-        # ユーザーごとにグルーピングしてランキング評価
-        # 「そのユーザーが見た(View)商品と買った(Buy)商品の中で、買った商品を上位に表示できたか」
-        
-        recall_at_10_list = []
-        recall_at_5_list = []
+        # 特徴量重要度
+        importance = pd.DataFrame({
+            'Feature': self.feature_cols,
+            'Gain': model.feature_importance(importance_type='gain')
+        }).sort_values('Gain', ascending=False)
+        print("\nLightGBM Feature Importance:\n", importance)
+
+    # ---------------------------------------------------------------------
+    # 共通評価関数 (Recall@10)
+    # ---------------------------------------------------------------------
+    def evaluate_model(self, model_name, score_col):
+        recall_at_10 = []
         mrr_list = []
         
-        grouped = test_data.groupby('user_id')
-        
-        # 購入履歴があるユーザーのみ評価対象
-        valid_users = 0
+        # ユーザーごとに処理
+        grouped = self.test_eval_df.groupby('user_id')
         
         for uid, group in grouped:
-            # 正解（購入）があるか確認
+            # 購入(正解)がないユーザーはスキップ
             if group['target'].sum() == 0:
                 continue
                 
-            valid_users += 1
-            
-            # スコア順にソート（降順）
-            sorted_group = group.sort_values('pred_score', ascending=False)
-            
-            # 正解ラベルのリスト
+            # スコアで降順ソート
+            sorted_group = group.sort_values(score_col, ascending=False)
             targets = sorted_group['target'].values
             
-            # 1. Recall@K (上位K個に1つでも正解があれば1)
-            # 正解が1つ以上あるので、TopKに1があればRecall=1とみなす（簡易版）
-            recall_at_5_list.append(1 if targets[:5].sum() > 0 else 0)
-            recall_at_10_list.append(1 if targets[:10].sum() > 0 else 0)
+            # Recall@10
+            # 上位10件の中に1つでも購入品があればOK
+            recall_at_10.append(1 if targets[:10].sum() > 0 else 0)
             
-            # 2. MRR (最初の正解が出る順位の逆数)
+            # MRR
             try:
-                # 最初の '1' のインデックスを探す
-                first_hit_rank = np.where(targets == 1)[0][0] + 1
-                mrr_list.append(1.0 / first_hit_rank)
+                rank = np.where(targets == 1)[0][0] + 1
+                mrr_list.append(1.0 / rank)
             except IndexError:
                 mrr_list.append(0)
-
-        # 結果出力
-        print("\n" + "="*40)
-        print("       RANKING EVALUATION       ")
-        print("       (Task: Rerank User's Views) ")
-        print("="*40)
-        print(f" Evaluated Users : {valid_users}")
-        print(f" Recall@5        : {np.mean(recall_at_5_list):.4f}")
-        print(f" Recall@10       : {np.mean(recall_at_10_list):.4f}")
-        print(f" MRR (Mean Rank) : {np.mean(mrr_list):.4f}")
-        print("="*40)
+                
+        r10 = np.mean(recall_at_10)
+        mrr = np.mean(mrr_list)
         
-        # AUCも一応出力
-        overall_auc = roc_auc_score(y_val, test_data['pred_score'])
-        print(f" Overall AUC     : {overall_auc:.4f}")
-
-        # 特徴量重要度
-        importance = pd.DataFrame({
-            'Feature': self.features,
-            'Gain': self.model.feature_importance(importance_type='gain')
-        }).sort_values('Gain', ascending=False)
-        print("\nTop Features:\n", importance)
+        self.results[model_name] = {'Recall@10': r10, 'MRR': mrr}
+        print(f"  [{model_name}] Recall@10: {r10:.4f}, MRR: {mrr:.4f}")
 
     # ---------------------------------------------------------------------
     # 実行
     # ---------------------------------------------------------------------
     def run(self):
-        self.preprocess()
-        self.clean_noise()
+        self.preprocess_and_split()
         self.engineer_features()
-        self.create_dataset()
+        self.create_ranking_dataset()
         self.train_and_evaluate()
+        
+        print("\n=== Final Comparison ===")
+        res_df = pd.DataFrame(self.results).T
+        print(res_df)
 
 if __name__ == "__main__":
     PRODUCT_FILE = 'products_20260204.csv'
@@ -314,7 +263,7 @@ if __name__ == "__main__":
         creat = pd.read_csv(CREATOR_FILE)
         sale = pd.read_csv(SALE_FILE)
         
-        pipeline = SuzuriRankPipeline(log, prod, creat, sale)
+        pipeline = SuzuriStrictBenchmark(log, prod, creat, sale)
         pipeline.run()
 
     except Exception as e:
