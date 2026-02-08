@@ -237,7 +237,6 @@ Sample of Cleaned Data (Top 3 rows):
 
 [3 rows x 5 columns]
 
-
 Loading CSV files...
  Loaded Products: 164997 rows
  Loaded Events:   504168 rows
@@ -261,26 +260,40 @@ Processing Sale Features...
 Features Created.
 
 === Phase 4: Dataset Construction (Negative Sampling) ===
-Using Features: ['material_complexity', 'creator_gini_index', 'creator_tenure_days', 'days_to_sale_end', 'is_sale_target', 'user_buy_rate', 'price']
+Creating Feature Dictionary...
 Positive samples: 5290
 Generating Negative Samples (Ratio 1:5)...
 Total Training Samples: 31740
 
-=== Phase 5: Model Training (LightGBM) ===
+=== Phase 5: Model Training (LightGBM) & Evaluation ===
 Training started...
 Training until validation scores don't improve for 50 rounds
-[50]    training's auc: 1       valid_1's auc: 1
+[50]    training's auc: 0.97934 valid_1's auc: 0.911657
+[100]   training's auc: 0.990118        valid_1's auc: 0.915371
 Early stopping, best iteration is:
-[1]     training's auc: 1       valid_1's auc: 1
+[60]    training's auc: 0.985032        valid_1's auc: 0.919269
 
->>> Validation AUC: 1.0000
+========================================
+       MODEL EVALUATION METRICS       
+========================================
+ AUC       : 0.9193
+ LogLoss   : 0.2406
+ Accuracy  : 0.9110
+ Precision : 0.8385
+ Recall    : 0.5676
+ F1-Score  : 0.6770
+========================================
+
+Confusion Matrix:
+ TN: 5191  FP: 114
+ FN: 451  TP: 592
 
 Top Important Features:
-               Feature          Gain
-1   creator_gini_index  21782.400391
-2  creator_tenure_days   3602.428040
-5        user_buy_rate      0.275801
-0  material_complexity      0.000000
-3     days_to_sale_end      0.000000
-4       is_sale_target      0.000000
-6                price      0.000000
+               Feature           Gain
+1   creator_gini_index  130945.739856
+5        user_buy_rate   25573.338160
+2  creator_tenure_days   12615.660749
+6                price    3428.144206
+0  material_complexity       0.000000
+4       is_sale_target       0.000000
+3     days_to_sale_end       0.000000
