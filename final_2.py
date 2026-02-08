@@ -43,8 +43,12 @@ class SuzuriFullPipeline:
 
         # 2. マスタ結合
         print("Merging Dataframes...")
-        self.full_df = self.log_df.merge(self.product_df, on='product_id', how='left', suffixes=('', '_prod'))
-        self.full_df = self.full_df.merge(self.creator_df, on='creator_id', how='left', suffixes=('', '_creator'))
+        # product_id重複対策: 重複がある場合は最初の行を採用して結合
+        unique_products = self.product_df.drop_duplicates(subset='product_id')
+        unique_creators = self.creator_df.drop_duplicates(subset='creator_id')
+        
+        self.full_df = self.log_df.merge(unique_products, on='product_id', how='left', suffixes=('', '_prod'))
+        self.full_df = self.full_df.merge(unique_creators, on='creator_id', how='left', suffixes=('', '_creator'))
         
         # 3. 時系列ソート
         self.full_df.sort_values(['user_id', 'accessed_at'], inplace=True)
@@ -157,7 +161,7 @@ class SuzuriFullPipeline:
                     i_mask = df['item_category_name'] == sale['item']
                     mask = t_mask & i_mask
                 else:
-                    mask = t_mask # カテゴリ情報がない場合は期間のみで判定（要注意）
+                    mask = t_mask # カテゴリ情報がない場合は期間のみで判定
                 
                 if mask.any():
                     df.loc[mask, 'is_sale_target'] = 1
@@ -203,15 +207,25 @@ class SuzuriFullPipeline:
             return
 
         # 負例生成
-        # プロダクト情報を辞書化して高速アクセス
-        prod_info = self.product_df.set_index('product_id').to_dict(orient='index')
-        all_pids = list(prod_info.keys())
+        # ★重要修正: product_idの重複を削除してから辞書化する (Index Error回避)
+        # 重複がある場合は最初の行を採用します
+        unique_products = self.product_df.drop_duplicates(subset='product_id')
+        prod_info = unique_products.set_index('product_id').to_dict(orient='index')
         
+        all_pids = list(prod_info.keys())
         neg_samples = []
         
         # 全量だと時間がかかるため、正例1件につきN件の負例を作る
         print(f"Generating Negative Samples (Ratio 1:{negative_ratio})...")
-        for _, row in pos_df.iterrows():
+        
+        # tqdmがあればプログレスバー表示
+        try:
+            from tqdm import tqdm
+            iterator = tqdm(pos_df.iterrows(), total=len(pos_df))
+        except ImportError:
+            iterator = pos_df.iterrows()
+
+        for _, row in iterator:
             uid = row['user_id']
             acc_time = row['accessed_at']
             u_buy_rate = row['user_buy_rate']
@@ -220,8 +234,9 @@ class SuzuriFullPipeline:
                 neg_pid = np.random.choice(all_pids)
                 p_data = prod_info.get(neg_pid, {})
                 
-                # 特徴量の割り当て（簡易版）
-                # 本来はマスタから正しく引き当てるべきだが、ここではpriceや固定値を使用
+                # 特徴量の割り当て（簡易版: ランダム商品の属性を使用）
+                # 本来はマスタから正しく引き当てるべきだが、price等は辞書から取得
+                # 文脈依存(saleなど)は正例のコピー(非セールと仮定)
                 sample = {
                     'user_id': uid,
                     'product_id': neg_pid,
@@ -231,8 +246,8 @@ class SuzuriFullPipeline:
                     'price': p_data.get('price', 0),
                     'is_sale_target': 0, 
                     'days_to_sale_end': 999,
-                    'material_complexity': 1, # 平均的な値
-                    'creator_gini_index': 0,  # 新規/無名と仮定
+                    'material_complexity': 1, 
+                    'creator_gini_index': 0,
                     'creator_tenure_days': 365
                 }
                 neg_samples.append(sample)
