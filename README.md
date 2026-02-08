@@ -205,24 +205,19 @@ Cleaned Records: 279612
 Train Logs: 273647
 Test Logs:  5965
 
-=== Phase 4: Training Models ===
-Error: "['price'] not in index"
-Traceback (most recent call last):
-  File "/home/intern2026-wntr-003/SUZURI/final_3.py", line 290, in <module>
-    pipeline.run()
-    ~~~~~~~~~~~~^^
-  File "/home/intern2026-wntr-003/SUZURI/final_3.py", line 273, in run
-    self.train_models()
-    ~~~~~~~~~~~~~~~~~^^
-  File "/home/intern2026-wntr-003/SUZURI/final_3.py", line 170, in train_models
-    lgb_train = lgb.Dataset(train_df[self.lgbm_cols], train_df['target'])
-                            ~~~~~~~~^^^^^^^^^^^^^^^^
-  File "/home/intern2026-wntr-003/SUZURI/.venv/lib/python3.14/site-packages/pandas/core/frame.py", line 4384, in __getitem__
-    indexer = self.columns._get_indexer_strict(key, "columns")[1]
-              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^
-  File "/home/intern2026-wntr-003/SUZURI/.venv/lib/python3.14/site-packages/pandas/core/indexes/base.py", line 6302, in _get_indexer_strict
-    self._raise_if_missing(keyarr, indexer, axis_name)
-    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/intern2026-wntr-003/SUZURI/.venv/lib/python3.14/site-packages/pandas/core/indexes/base.py", line 6355, in _raise_if_missing
-    raise KeyError(f"{not_found} not in index")
-KeyError: "['price'] not in index"
+=== Phase 4: Training LightGBM ===
+Training started...
+LightGBM Trained.
+
+=== Phase 5: Global Ranking Evaluation (Recall@10 on ALL Items) ===
+Evaluating all 15 active test users.
+Pre-calculating LightGBM scores for all items...
+Processing user 1...
+Processing user 11...
+
+=== FINAL RESULTS (Global Recall@10) ===
+Evaluated on 15 users against 107587 items.
+        Model  Recall@10
+0      Random        0.0
+1  Popularity        0.0
+2    LightGBM        0.0
