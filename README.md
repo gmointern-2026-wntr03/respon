@@ -237,50 +237,47 @@ Sample of Cleaned Data (Top 3 rows):
 
 [3 rows x 5 columns]
 
-Loading files...
+=== Generating Dummy Data for Testing ===
+--- [1/6] Preprocessing & Merging ---
+Total Log Records: 591954
+--- [2/6] Detecting Noise & Suspicious Transactions ---
+--- [3/6] Feature Engineering ---
+--- [4/6] Creating Clean Data Mart (Filtering) ---
+Original Records: 591954
+Cleaned Records:  591954
+Removed Records:  0
+--- [5/6] Running Deep Dive Analysis ---
+Analysis 1: Cross-Selling Potential...
+Top 5 Materials used in Cross-Selling:
+material_url
+https://d1q9av5b648rmv.cloudfront.net/v3/400x400/17226588/1738865215-1280x1280.png.png?h=c709015d52bbedaceb1f83fe62d823524d30f2c0    5
+https://d1q9av5b648rmv.cloudfront.net/v3/400x400/18449055/1755781245-2664x3548.jpg.png?h=9fe62e014b716bed200cb997b34641bdd89b9576    4
+https://d1q9av5b648rmv.cloudfront.net/v3/400x400/17073923/1735504136-1000x1000.png.png?h=d910f1310f9c0cd8cb31390a24d944b74e9b5a87    3
+https://d1q9av5b648rmv.cloudfront.net/v3/400x400/17083041/1735772885-1284x1340.jpg.png?h=98e818d0231ff373977699ac023718b2402daee4    3
+https://d1q9av5b648rmv.cloudfront.net/v3/400x400/18027424/1750152463-1280x1280.png.png?h=2d0974564ed1b19bd51f155a3cf8514aa7bf2e68    3
+Name: count, dtype: int64
 
-=== Phase 1: Preprocessing ===
-Merging Dataframes...
+Analysis 2: Price & Profit Analysis...
+Correlation Matrix:
+                  price    profit  profit_margin       cvr
+price          1.000000  0.616604      -0.261249  0.008386
+profit         0.616604  1.000000       0.535037 -0.021541
+profit_margin -0.261249  0.535037       1.000000 -0.033607
+cvr            0.008386 -0.021541      -0.033607  1.000000
 
-=== Phase 2: Noise Cleaning ===
-Cleaned Records: 279612
+Analysis 3: Text Mining (Top Keywords)...
+Top Keywords: ['amami' 'com' 'dog' 'https' 'men' 'www' 'お値段変わります' 'さあ'
+ 'それぞれのカラーを選択されますと' 'それぞれのカラーを選択されますとお値段をご確認いただけます' 'できあがりイメージがご確認いただけます'
+ 'タイトル' 'チームasuka' 'デザインが染み込まないよう工程がプラスされるため' 'デザインが染み込んだような仕上がりになります'
+ 'ハブ' '濃いお色のボディをご希望ですと' '画像タイトル' '画像説明' '薄いお色のボディは']
 
-=== Phase 3: Feature Engineering ===
+--- Processing Complete ---
+Noise Report: {'self_purchase_count': np.int64(0), 'dominant_buyer_transactions': 259584, 'direct_buy_transactions': 46931}
 
-=== Phase 4: Dataset Construction (Hard Negatives) ===
-Downsampling negatives from 176366 to 52900...
-Positive Samples (Buy): 5290
-Negative Samples (View only): 52900
-Train Size: 46552
-Test Size:  11638
+Sample of Cleaned Data (Top 3 rows):
+                                             user_id  product_id  ... is_sale_target  creator_gini_index
+0  0001612a3121be9136950b33ca144e4337b0759a68ce62...    58403574  ...          False                 0.0
+1  0001612a3121be9136950b33ca144e4337b0759a68ce62...    47733744  ...          False                 0.0
+2  0001612a3121be9136950b33ca144e4337b0759a68ce62...    17076616  ...          False                 0.0
 
-=== Phase 5: Training & Ranking Evaluation ===
-Training until validation scores don't improve for 50 rounds
-[50]    training's auc: 0.988587        valid_1's auc: 0.955109
-[100]   training's auc: 0.990526        valid_1's auc: 0.955558
-[150]   training's auc: 0.992369        valid_1's auc: 0.955188
-Early stopping, best iteration is:
-[110]   training's auc: 0.99076 valid_1's auc: 0.95575
-
-Calculating Ranking Metrics (Recall@K, MRR)...
-
-========================================
-       RANKING EVALUATION       
-       (Task: Rerank User's Views) 
-========================================
- Evaluated Users : 144
- Recall@5        : 0.7986
- Recall@10       : 0.8819
- MRR (Mean Rank) : 0.6497
-========================================
- Overall AUC     : 0.9558
-
-Top Features:
-                Feature           Gain
-5        user_buy_rate  218897.971350
-2  creator_tenure_days    8427.309535
-6                price    8191.004975
-1   creator_gini_index    5803.829042
-0  material_complexity       0.000000
-4       is_sale_target       0.000000
-3     days_to_sale_end       0.000000
+[3 rows x 5 columns]
