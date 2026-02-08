@@ -239,23 +239,44 @@ Sample of Cleaned Data (Top 3 rows):
 
 
 
+Loading CSV files...
+ Loaded Products: 164997 rows
+ Loaded Events:   504168 rows
+ Loaded Creators: 26273 rows
+ Loaded Sales:    56 rows
 
+=== Phase 1: Preprocessing & Merging ===
+Merging Dataframes...
+Total Raw Records: 591954
+
+=== Phase 2: Noise Detection & Filtering ===
+Detecting Direct Buys...
+Noise Report:
+ - Self Purchases: 0
+ - Dominant Buyers: 259584
+ - Direct Buys: 46931
+Records after cleaning: 319337 (Removed: 272617)
+
+=== Phase 3: Feature Engineering ===
+Processing Sale Features...
+Features Created.
+
+=== Phase 4: Dataset Construction (Negative Sampling) ===
+Using Features: ['material_complexity', 'creator_gini_index', 'creator_tenure_days', 'days_to_sale_end', 'is_sale_target', 'user_buy_rate', 'price']
+Positive samples: 6068
+
+[Error] 予期せぬエラーが発生しました: DataFrame index must be unique for orient='index'.
 Traceback (most recent call last):
-  File "/home/intern2026-wntr-003/SUZURI/final_2.py", line 3, in <module>
-    import lightgbm as lgb
-  File "/home/intern2026-wntr-003/SUZURI/.venv/lib/python3.14/site-packages/lightgbm/__init__.py", line 11, in <module>
-    from .basic import Booster, Dataset, Sequence, register_logger
-  File "/home/intern2026-wntr-003/SUZURI/.venv/lib/python3.14/site-packages/lightgbm/basic.py", line 9, in <module>
-    from .libpath import _LIB  # isort: skip
-    ^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/intern2026-wntr-003/SUZURI/.venv/lib/python3.14/site-packages/lightgbm/libpath.py", line 49, in <module>
-    _LIB = ctypes.cdll.LoadLibrary(_find_lib_path()[0])
-  File "/home/linuxbrew/.linuxbrew/opt/python@3.14/lib/python3.14/ctypes/__init__.py", line 552, in LoadLibrary
-    return self._dlltype(name)
-           ~~~~~~~~~~~~~^^^^^^
-  File "/home/linuxbrew/.linuxbrew/opt/python@3.14/lib/python3.14/ctypes/__init__.py", line 433, in __init__
-    self._handle = self._load_library(name, mode, handle, winmode)
-                   ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/linuxbrew/.linuxbrew/opt/python@3.14/lib/python3.14/ctypes/__init__.py", line 473, in _load_library
-    return _dlopen(name, mode)
-OSError: libgomp.so.1: cannot open shared object file: No such file or directory
+  File "/home/intern2026-wntr-003/SUZURI/final_2.py", line 342, in <module>
+    pipeline.run()
+    ~~~~~~~~~~~~^^
+  File "/home/intern2026-wntr-003/SUZURI/final_2.py", line 313, in run
+    self.create_dataset()
+    ~~~~~~~~~~~~~~~~~~~^^
+  File "/home/intern2026-wntr-003/SUZURI/final_2.py", line 207, in create_dataset
+    prod_info = self.product_df.set_index('product_id').to_dict(orient='index')
+  File "/home/intern2026-wntr-003/SUZURI/.venv/lib/python3.14/site-packages/pandas/core/frame.py", line 2236, in to_dict
+    return to_dict(self, orient, into=into, index=index)
+  File "/home/intern2026-wntr-003/SUZURI/.venv/lib/python3.14/site-packages/pandas/core/methods/to_dict.py", line 259, in to_dict
+    raise ValueError("DataFrame index must be unique for orient='index'.")
+ValueError: DataFrame index must be unique for orient='index'.
